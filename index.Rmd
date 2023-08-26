@@ -1,0 +1,686 @@
+---
+title: "Boatable Days & Drought"
+output: 
+  flexdashboard::flex_dashboard:
+    theme:
+      version: 4
+      bootswatch: yeti
+    orientation: columns
+    vertical_layout: fill
+runtime: shiny
+---
+
+<style type="text/css">
+.value-box .value {
+    color: white;
+}
+.value-box .caption {
+    color: white;
+}
+</style>
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+
+# Shiny & Flexdashboard packages
+library(shiny)
+library(flexdashboard)
+library(plotly)
+library(shinyBS)
+
+
+# Data manipulation
+library(tidyr)
+library(dplyr)
+# library(tidyverse)
+library(ggplot2)
+# library(DT)
+library(sf)
+library(ggpmisc)
+# library(ggpubr)
+
+# Mapping packages
+library(leaflet)
+library(leafem)
+
+# water data
+# library(nhdplusTools)
+# library(cdssr)
+
+# Load function data_utils.R file
+# source('R/utils.R')
+# source('R/get_lm_relationships.R')
+```
+
+
+```{r, include = FALSE}
+# path name
+data_path <- "data/dashboard_data"
+
+
+# read in sf site locations
+gauge_sf <- st_read(paste0(data_path, "/tidy/gauge_sf.shp"))
+
+# read in climate/drought data
+
+bdays_climate <- readRDS(paste0(data_path, "/bdays_climate_data.rds"))
+
+# unique site names
+sites <- unique(bdays_climate$name_description)
+
+
+# read in flow data
+flow_thresholds <- read.csv(paste0(data_path, "/tidy/flow_thresholds.csv"))
+
+
+# read in linreg results
+linreg <- readRDS(paste0(data_path, "/tidy/linreg.rds"))
+
+```
+
+
+
+Historical Data
+======================================
+
+Inputs {.sidebar}
+-------------------------------------
+
+**Historical Data**
+
+This tab shows  historical streamflow and total number of summer season boatable days for 35 USGS Sites across Colorado. Boatable days are the number of days that the flow is between a specific flow range. Each USGS gage corresponds to a nearby American Whitewater stream segment with an established runnable range. 
+
+Click on a USGS gage on the map to view.
+
+**Gage Name:**
+```{r gage_name1}
+getname <- reactive({
+  sprintf(usgs_name())
+})
+
+renderText(
+  if(is.null(usgs_name())) {
+    
+    return(NULL)
+    
+  } else {
+    {getname()}
+})
+
+```
+\n
+
+**Segment Name:**
+```{r segname1}
+get_seg <- reactive({
+  sprintf(usgs_name())
+})
+
+renderText(
+  if(is.null(usgs_name())) {
+    
+    return(NULL)
+    
+  } else {
+    {get_seg <- linreg %>%
+    filter(site_name == usgs_name()) %>%
+    slice(which.max(r2))
+  seg <- get_seg$segment}
+})
+```
+
+
+Column {data-width=500}
+-----------------------------------------------------------------------
+### Map
+```{r}
+leafletOutput('map')
+```
+
+```{r}
+# create map -------------
+output$map <- renderLeaflet({
+
+
+  leaflet(gauge_sf) %>%
+  addTiles() %>%
+  addCircleMarkers(label = gauge_sf$nm_dscr,
+                   layerId = ~nm_dscr)
+
+})
+
+
+
+
+# create reactive click variable -------------
+usgs_name <- shiny::reactive({
+   input$map_marker_click$id
+})
+
+
+```
+
+
+Column {data-width=450}
+-----------------------------------------------------------------------
+
+
+
+
+### Streamflow Timeseries
+
+```{r}
+shiny::plotOutput("tsplot")
+```
+
+```{r context = "server"}
+shiny::observeEvent(input$map_marker_click, {
+
+  if(is.null(usgs_name())) {
+
+    return(NULL)
+
+  } else {
+output$tsplot <-
+  renderPlot({
+  df <- flow_thresholds %>%
+    mutate(date = as.Date(date)) %>%
+    filter(date >= "1980-01-01") %>%
+    filter(station_nm == usgs_name())
+  
+    ggplot(df,) +
+             geom_line(aes(x = date, y = flow), lwd = 0.9, color = "#4f77e3") +
+             theme_bw() +
+             geom_hline(yintercept = df$range_upper_bound[1]) +
+             geom_hline(yintercept = df$range_lower_bound[1]) +
+             labs(
+               y = "Flow",
+               x = "Date",
+               title = usgs_name())
+})
+}})
+
+```
+
+
+
+### Boatable Days
+```{r}
+shiny::plotOutput("bdaysplot")
+
+```
+
+```{r context = "server"}
+
+shiny::observeEvent(input$map_marker_click, {
+  
+  if(is.null(usgs_name())) {
+    
+    return(NULL)
+    
+  } else {
+    
+    output$bdaysplot <- renderPlot({
+      df <- bdays_climate %>%
+        filter(name_description == usgs_name())
+      
+      ggplot(df,) +
+        geom_bar(aes(x = year, y = boatable_days), stat = "identity") +
+        theme_bw() +
+        labs(
+          y = "Boatable Days",
+          x = "Date", 
+          title = usgs_name()
+        )
+    })
+  }})
+```
+
+
+Prediction Tool
+========================================
+
+
+Inputs {.sidebar}
+-------------------------------------
+**Prediction Tool**
+
+This tab shows the relationship between boatable days a popular drought indices PDSI, SPEI, and SPI. Users can drag the slider below to show a predicted number of annual boatable days given a specific drought index value.
+
+Click on a USGS gage on the map to view.
+
+
+
+```{r}
+
+# selectInput("climate_var", label = "\n Climate Variable",
+#             choices = unique(linreg$climate_var), selected = "pdsi_may")
+
+# selectInput("year", label = "Year", 
+#             choices = seq(1980,2023,1), selected = 2022)
+```
+
+**Gage Name:**
+```{r gage_name2}
+getname2 <- reactive({
+  sprintf(usgs_name2())
+})
+
+renderText(
+  if(is.null(usgs_name2())) {
+    
+    return(NULL)
+    
+  } else {
+    {getname2()}
+})
+
+```
+\n
+
+**Segment Name:**
+```{r segname}
+get_seg <- reactive({
+  sprintf(usgs_name2())
+})
+
+renderText(
+  if(is.null(usgs_name2())) {
+    
+    return(NULL)
+    
+  } else {
+    {get_seg <- linreg %>%
+    filter(site_name == usgs_name2()) %>%
+    slice(which.max(r2))
+  seg <- get_seg$segment}
+})
+```
+
+
+**Drought Index:**
+```{r printvar}
+get_var <- reactive({
+  sprintf(best_var())
+})
+
+renderText(
+  if(is.null(usgs_name2())) {
+    
+    return(NULL)
+    
+  } else {
+    {get_var <- case_when(
+                best_var() == "spi1y_may" ~ "May SPI 1 year",
+                best_var() == "spei1y_may" ~ "May SPEI 1 year",
+                TRUE ~ "May PDSI")}
+    
+    
+})
+```
+
+<br> 
+
+
+*Move slider to change Drought Index value*
+```{r}
+
+sliderInput(
+    "obs",
+    label = NULL,
+    value = 0,
+    min = -5,
+    max = 5,
+    step = 0.25
+ )
+
+table <- data.frame(var = c("spei1y_may", "spi1y_may", "pdsi_may"),
+                    min = c(-2.25, -2.25, -5),
+                    max = c(2.25, 2.25, 5))
+```
+
+```{r}
+
+
+# observeEvent(best_var(), {
+#   minr = table$min[table$var == best_var()]
+#   maxr = table$max[table$var == best_var()]
+# 
+#   updateSliderInput(session, "obs",
+#                     min = minr,
+#                     max = maxr)
+# })
+  
+# observeEvent(best_var(), {
+#   range = c(-5,5)
+# 
+#   if(best_var() == "spei1y_may") {
+#     range = c(-2.25,2.25)
+#   }
+#   else if (best_var() == "spi1y_may") {
+#     range = c(-2.25,2.5)
+#   }
+#   else if (best_var() == "pdsi_may") {
+#     range = c(-5,5)
+#   }
+#   updateSliderInput(session,
+#                     "obs",
+#                     value = 1,
+#                     min = min(range),
+#                     max = max(range),
+#                     step = 0.25)
+# })
+
+
+# updateSliderInput({inputId= “obs”, value = 1,
+# min = observeEvent({best_var(), 
+#   
+#   if(best_var() == "spei1y_may") {
+#     min = -2.25
+#   }
+#   else if (best_var() == "spi1y_may") {
+#     min = -2.25
+#   }
+#   else if (best_var() == "pdsi_may") {
+#     min = -5
+#   }
+# }),
+# max = observeEvent({best_var(), 
+#   
+#   if(best_var() == "spei1y_may") {
+#     max = 2.25
+#   }
+#   else if (best_var() == "spi1y_may") {
+#     max = 2.25
+#   }
+#   else if (best_var() == "pdsi_may") {
+#     max = 5
+#   }
+# })
+# 
+# })
+
+```
+
+
+
+Column {data-width = 500}
+-----------------------------------------------------------------------
+
+
+
+### Map
+```{r}
+leafletOutput('map2')
+```
+
+```{r}
+# create map -------------
+output$map2 <- renderLeaflet({
+
+
+  leaflet(gauge_sf) %>%
+  addTiles() %>%
+  addCircleMarkers(label = gauge_sf$nm_dscr,
+                   layerId = ~nm_dscr)
+
+
+})
+
+
+
+
+# create reactive click variable -------------
+usgs_name2 <- shiny::reactive({
+   input$map2_marker_click$id
+})
+
+
+
+```
+
+
+
+Column {data-width=450}
+-----------------------------------------------------------------------
+
+
+```{r r2value}
+get_r2 <- reactive({
+  sprintf(best_var())
+})
+
+renderText(
+  if(is.null(usgs_name2())) {
+    
+    return(NULL)
+    
+  } else {
+    {forecast_data <- linreg %>%
+         filter(
+           site_name == usgs_name2(),
+           climate_var == best_var())
+    r2 <- paste0("R² = ", round(forecast_data$r2, 2))}
+})
+```
+
+```{r equation}
+# choose best variable to represent each site
+best_var <- shiny::reactive({
+  best_setup <- linreg %>%
+    filter(site_name == usgs_name2()) %>%
+    slice(which.max(r2))
+  best <- best_setup$climate_var
+})
+
+# prediction
+y <- shiny::reactive({
+  forecast_data <- linreg %>%
+         filter(
+           site_name == usgs_name2(),
+           climate_var == best_var())
+  
+  slope <- forecast_data$m
+
+  intercept <- forecast_data$intercept
+
+  bdays_forecast <- slope*input$obs + intercept
+}) 
+
+
+
+
+
+```
+
+
+### Scatterplot
+
+```{r}
+plotlyOutput("scatterplot")
+
+shinyBS::bsPopover(
+  "scatterplot",
+  title     = "Linear Regression",
+  content   = "This scatter plot shows the historical relationship between boatable days and the drought index with the highest predictive power. The green dot corresponds to the drought index value from the slider in the left-hand panel",
+  placement = "left",
+  options   = list(container = "body")
+  )
+# tags$style(HTML("
+#                 .tooltip > .tooltip-inner {
+#                 width: 400px;
+#                 color: black;
+#                 background-color: white;
+#                 }
+#                 "))
+```
+
+```{r context = "server"}
+
+shiny::observeEvent(input$map2_marker_click, {
+  
+  if(is.null(usgs_name2())) {
+    
+    return(NULL)
+    
+  } else {
+    output$scatterplot <-
+      renderPlotly({
+        df <- bdays_climate %>%
+          filter(name_description == usgs_name2()) %>%
+          select(name_description, id, boatable_days, best_var(), year)
+        
+        
+        ggplotly(
+          ggplot(df, 
+                 aes(x = .data[[best_var()]], 
+                     y = boatable_days, label = year)) +
+            stat_poly_line() +
+            # geom_smooth(method = "lm", formula = formula) +
+            geom_point(size = 1.6)  +
+            # stat_smooth(method = "lm", col = "black",
+            # # se = FALSE,
+            # lty = 2, lwd = 0.5) +
+            theme_bw() +
+            labs(
+              title = usgs_name2(),
+              y = "Boatable Days",
+              x = case_when(
+                best_var() == "spi1y_may" ~ "May SPI 1 year",
+                best_var() == "spei1y_may" ~ "May SPEI 1 year",
+                TRUE ~ "May PDSI"
+              )
+            ) +
+            geom_point(aes(x = input$obs, y = y(), label = "Prediction"),
+                       size = 3,
+                       color = "darkgreen"
+            ),
+          tooltip = c("label")
+        )
+      })
+  }})
+```
+
+
+
+### Number of Boatable Days
+
+```{r}
+valueBoxOutput("bdays_box")
+
+shinyBS::bsPopover(
+  "bdays_Box",
+  title     = "Public Safety Score",
+  content   = "The hazard to human life and wellbeing. Higher scores indicate LHDs with a higher threat to public safety. A removal/retrofit project on LHDs with high scores would improve safety surrounding the more hazardous LHDs.",
+  placement = "left",
+  options   = list(container = "body")
+  )
+tags$style(HTML("
+                .tooltip > .tooltip-inner {
+                width: 400px;
+                color: black;
+                background-color: white;
+                }
+                "))
+```
+
+```{r}
+
+# renderValueBox({
+#   
+# if(is.null(usgs_name2())) {
+# 
+#     valueBox(
+#     
+#     paste("Click on USGS Site on Map to view")
+#     
+#     )
+# 
+#   } else {
+# forecast_data <- linreg %>%
+#          filter(
+#            site_name == "GUNNISON RIVER BELOW GUNNISON TUNNEL, CO",
+#            climate_var == "spei1y_may")
+# 
+# 
+# bdays_data <- bdays_climate %>%
+#   filter(
+#     name_description == "GUNNISON RIVER BELOW GUNNISON TUNNEL, CO") %>%
+#   pivot_longer(cols = pr:ncol(bdays_climate),
+#                names_to = "climate_var",
+#                values_to = "value") %>%
+#   filter(climate_var == "spei1y_may")
+# 
+# num_b_years <- sum(!is.na(bdays_data$boatable_days))
+# 
+# 
+# slope <- forecast_data$m
+# 
+# intercept <- forecast_data$intercept
+# 
+# bdays_forecast <- slope*1 + intercept
+# 
+# se <- forecast_data$sd/
+#   sqrt(num_b_years)
+# 
+# 
+#   valueBox(
+#     
+#     paste(round(bdays_forecast,1), " +/- ", round(se,1))
+#     
+#     )}
+#   })
+
+# gore creek = 1.93
+# gunnison below tunnel = 8.43
+
+output$bdays_box <- renderValueBox({
+
+if(is.null(usgs_name2())) {
+
+    valueBox(
+
+    paste(NULL)
+
+    )
+
+  } else {
+forecast_data <- linreg %>%
+         filter(
+           site_name == usgs_name2(),
+           climate_var == best_var())
+
+
+bdays_data <- bdays_climate %>%
+  filter(
+    name_description == usgs_name2()) %>%
+  pivot_longer(cols = pr:ncol(bdays_climate),
+               names_to = "climate_var",
+               values_to = "value") %>%
+  filter(climate_var == best_var())
+
+num_b_years <- sum(!is.na(bdays_data$boatable_days))
+
+
+slope <- forecast_data$m
+
+intercept <- forecast_data$intercept
+
+bdays_forecast <- slope*input$obs + intercept
+
+se <- forecast_data$sd/
+  sqrt(num_b_years)
+
+# r2 <- forecast_data$r2
+
+
+  valueBox(
+
+    paste(round(bdays_forecast,0)),
+    color = "darkgreen"
+
+    )}
+  })
+
+```
+
