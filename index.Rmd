@@ -2,22 +2,40 @@
 title: "Boatable Days & Drought"
 output: 
   flexdashboard::flex_dashboard:
-    theme:
-      version: 4
-      bootswatch: yeti
     orientation: columns
     vertical_layout: fill
+    logo: www/lynker_logo_white_transparent.png
+    css: www/custom.css
 runtime: shiny
 ---
+<style>
 
-<style type="text/css">
-.value-box .value {
-    color: white;
-}
-.value-box .caption {
-    color: white;
-}
+.navbar, [data-toggle=tab], .navbar-brand  {   background-color:#1c3a5d;   border-color:black;   color:white; }
+
 </style>
+
+```{r}
+# old YAML header and value box CSS 
+# ---
+# title: "Boatable Days & Drought"
+# output: 
+#   flexdashboard::flex_dashboard:
+#     theme:
+#       version: 4
+#       bootswatch: yeti
+#     orientation: columns
+#     vertical_layout: fill
+# runtime: shiny
+# ---
+# <style type="text/css">
+# .value-box .value {
+#     color: white;
+# }
+# .value-box .caption {
+#     color: white;
+# }
+# </style>
+```
 
 ```{r setup, include=FALSE}
 library(flexdashboard)
@@ -27,7 +45,6 @@ library(shiny)
 library(flexdashboard)
 library(plotly)
 library(shinyBS)
-
 
 # Data manipulation
 library(tidyr)
@@ -48,7 +65,7 @@ library(leafem)
 # library(cdssr)
 
 # Load function data_utils.R file
-# source('R/utils.R')
+source('R/utils.R')
 # source('R/get_lm_relationships.R')
 ```
 
@@ -56,7 +73,6 @@ library(leafem)
 ```{r, include = FALSE}
 # path name
 data_path <- "data/dashboard_data"
-
 
 # read in sf site locations
 gauge_sf <- st_read(paste0(data_path, "/tidy/gauge_sf.shp"))
@@ -68,17 +84,35 @@ bdays_climate <- readRDS(paste0(data_path, "/bdays_climate_data.rds"))
 # unique site names
 sites <- unique(bdays_climate$name_description)
 
-
 # read in flow data
 flow_thresholds <- read.csv(paste0(data_path, "/tidy/flow_thresholds.csv"))
-
 
 # read in linreg results
 linreg <- readRDS(paste0(data_path, "/tidy/linreg.rds"))
 
+# slider range table
+table <- data.frame(
+  var = c("spei1y_may", "spi1y_may", "pdsi_may"),
+  min = c(-2.25, -2.25, -5),
+  max = c(2.25, 2.25, 5)
+  )
+
+# render leaflet map on page 1 when the app starts
+output$map       <- leaflet::renderLeaflet({ basemap(shp = gauge_sf) })
+
+# render the leaflet map on page 2 when the app starts
+output$map2       <- leaflet::renderLeaflet({ basemap(shp = gauge_sf) })
+
+# TODO:
+# Angus TODO list:
+# - updateSliderInput - still no luck in dynamically changing the range of the slider based on a reactive variable. 
+  # Lines 345-352 is the best attempt at it, but there are other attempts below that. (DONE)
+
+# - it's not crucial, so I don't want to spend much time on it if it is complicated, 
+  # but I wanted to change the color of the marker on the map when you click on it. no worries if that doesn't work out (DONE)
+
+# - Lynker theme! (DONE)
 ```
-
-
 
 Historical Data
 ======================================
@@ -138,35 +172,41 @@ leafletOutput('map')
 ```
 
 ```{r}
-# create map -------------
-output$map <- renderLeaflet({
-
-
-  leaflet(gauge_sf) %>%
-  addTiles() %>%
-  addCircleMarkers(label = gauge_sf$nm_dscr,
-                   layerId = ~nm_dscr)
-
-})
-
-
-
+# old method for initially rendering leaflet 'map'
+# # create map -------------
+# output$map <- renderLeaflet({
+# 
+# 
+#   leaflet(gauge_sf) %>%
+#   addTiles() %>%
+#   addCircleMarkers(label = gauge_sf$nm_dscr,
+#                    layerId = ~nm_dscr)
+# 
+# })
 
 # create reactive click variable -------------
+# name of the USGS gauge based on the marker clicked on leaflet 'map'
 usgs_name <- shiny::reactive({
    input$map_marker_click$id
 })
 
-
+# reactive value for highlighting a clicked marker from leaflet 'map'
+selected_gauge <- shiny::reactive({
+    # subset to point that matches the usgs_name2() that has been clicked on
+    if(is.null(usgs_name())) {
+      
+      return(NULL)
+      
+    } else {
+         gauge_sf[gauge_sf$nm_dscr == usgs_name(), ]
+    }
+  
+})
 ```
 
 
 Column {data-width=450}
 -----------------------------------------------------------------------
-
-
-
-
 ### Streamflow Timeseries
 
 ```{r}
@@ -181,23 +221,59 @@ shiny::observeEvent(input$map_marker_click, {
     return(NULL)
 
   } else {
-output$tsplot <-
-  renderPlot({
-  df <- flow_thresholds %>%
-    mutate(date = as.Date(date)) %>%
-    filter(date >= "1980-01-01") %>%
-    filter(station_nm == usgs_name())
-  
-    ggplot(df,) +
-             geom_line(aes(x = date, y = flow), lwd = 0.9, color = "#4f77e3") +
-             theme_bw() +
-             geom_hline(yintercept = df$range_upper_bound[1]) +
-             geom_hline(yintercept = df$range_lower_bound[1]) +
-             labs(
-               y = "Flow",
-               x = "Date",
-               title = usgs_name())
-})
+    
+    print(paste0("usgs_name(): ", usgs_name()))
+ 
+    print("Updating leaflet map w/ selected gauge...")
+
+          # highlight the clicked on gauge in a different color
+          leaflet::leafletProxy("map") %>%
+              leaflet::clearMarkers() %>%
+              leaflet::clearShapes() %>%
+              leaflet::clearGroup(c("selected_gauge_group")) %>%
+              leaflet::addCircleMarkers(
+                data         = gauge_sf,
+                color        = "black",
+                opacity      = 0.7,
+                fillColor    = "dodgerblue",
+                fillOpacity  = 0.7,
+                weight       = 2,
+                stroke       = TRUE,
+                label        = gauge_sf$nm_dscr,
+                layerId      = ~nm_dscr
+                ) %>%
+              leaflet::addCircleMarkers(
+                data         = selected_gauge(),
+                color        = "black",
+                opacity      = 1,
+                fillColor    = "darkred",
+                fillOpacity  = 1,
+                weight       = 2,
+                radius       = 12,
+                stroke       = TRUE,
+                group        = "selected_gauge_group",
+                label        = selected_gauge()$nm_dscr,
+                layerId      = ~nm_dscr
+                )
+          
+    # output new timeseries plot ("tsplot") based on marker click on leaflet 'map'
+    output$tsplot <-
+      renderPlot({
+      df <- flow_thresholds %>%
+        mutate(date = as.Date(date)) %>%
+        filter(date >= "1980-01-01") %>%
+        filter(station_nm == usgs_name())
+      
+        ggplot(df,) +
+                 geom_line(aes(x = date, y = flow), lwd = 0.9, color = "#4f77e3") +
+                 theme_bw() +
+                 geom_hline(yintercept = df$range_upper_bound[1]) +
+                 geom_hline(yintercept = df$range_lower_bound[1]) +
+                 labs(
+                   y = "Flow",
+                   x = "Date",
+                   title = usgs_name())
+    })
 }})
 
 ```
@@ -249,14 +325,34 @@ This tab shows the relationship between boatable days a popular drought indices 
 
 Click on a USGS gage on the map to view.
 
-
+```{r context="server"}
+# reactive value for highlighting a clicked marker
+selected_gauge2 <- shiny::reactive({
+    # subset to point that matches the usgs_name2() that has been clicked on
+    if(is.null(usgs_name2())) {
+      
+      return(NULL)
+      
+    } else {
+         gauge_sf[gauge_sf$nm_dscr == usgs_name2(), ]
+    }
+  
+})
+```
 
 ```{r}
+# - updateSliderInput - still no luck in dynamically changing the range of the slider based on a reactive variable. 
+  # Lines 345-352 is the best attempt at it, but there are other attempts below that.
+
+# - it's not crucial, so I don't want to spend much time on it if it is complicated, 
+  # but I wanted to change the color of the marker on the map when you click on it. no worries if that doesn't work out
+
+# - Lynker theme!
 
 # selectInput("climate_var", label = "\n Climate Variable",
 #             choices = unique(linreg$climate_var), selected = "pdsi_may")
-
-# selectInput("year", label = "Year", 
+# 
+# selectInput("year", label = "Year",
 #             choices = seq(1980,2023,1), selected = 2022)
 ```
 
@@ -321,10 +417,9 @@ renderText(
 
 <br> 
 
-
 *Move slider to change Drought Index value*
 ```{r}
-
+# initial slide input
 sliderInput(
     "obs",
     label = NULL,
@@ -332,16 +427,27 @@ sliderInput(
     min = -5,
     max = 5,
     step = 0.25
+    # step = NULL
  )
 
-table <- data.frame(var = c("spei1y_may", "spi1y_may", "pdsi_may"),
-                    min = c(-2.25, -2.25, -5),
-                    max = c(2.25, 2.25, 5))
-```
+# set up observer to watch for the event when "best_var()" changes
+# If best_var() changes (i.e. there is a new usgs_name2() value because one of the map markers was clicked),
+#       then the sliderInput() is updated using the slider_min() and slider_max() reactive values that change based on the current "best_var()" 
+shiny::observeEvent(best_var(), {
+  shiny::updateSliderInput(
+                session, 
+                inputId = "obs",
+                label   = NULL,
+                value   = 0,
+                min     = slider_min(),
+                max     = slider_max(),
+                step    = 0.25
+                # step    = slider_step()
+                # step = NULL
+                )
+  })
 
-```{r}
-
-
+########### Rachel's original code ############
 # observeEvent(best_var(), {
 #   minr = table$min[table$var == best_var()]
 #   maxr = table$max[table$var == best_var()]
@@ -371,7 +477,6 @@ table <- data.frame(var = c("spei1y_may", "spi1y_may", "pdsi_may"),
 #                     step = 0.25)
 # })
 
-
 # updateSliderInput({inputId= “obs”, value = 1,
 # min = observeEvent({best_var(), 
 #   
@@ -397,46 +502,48 @@ table <- data.frame(var = c("spei1y_may", "spi1y_may", "pdsi_may"),
 #     max = 5
 #   }
 # })
-# 
 # })
-
 ```
-
-
 
 Column {data-width = 500}
 -----------------------------------------------------------------------
-
-
-
 ### Map
 ```{r}
 leafletOutput('map2')
 ```
 
 ```{r}
-# create map -------------
-output$map2 <- renderLeaflet({
-
-
-  leaflet(gauge_sf) %>%
-  addTiles() %>%
-  addCircleMarkers(label = gauge_sf$nm_dscr,
-                   layerId = ~nm_dscr)
-
-
-})
-
-
-
+# old method for initially rendering leaflet 'map2'
+# # create map -------------
+# output$map2 <- renderLeaflet({
+# 
+# 
+#   leaflet(gauge_sf) %>%
+#   addTiles() %>%
+#   addCircleMarkers(label = gauge_sf$nm_dscr,
+#                    layerId = ~nm_dscr)
+# 
+# 
+# })
 
 # create reactive click variable -------------
+# reactive value that changes based on the marker clicked on 'map2'
 usgs_name2 <- shiny::reactive({
    input$map2_marker_click$id
 })
 
-
-
+# reactive value for highlighting a clicked marker from 'map2'
+selected_gauge2 <- shiny::reactive({
+    # subset to point that matches the usgs_name2() that has been clicked on
+    if(is.null(usgs_name2())) {
+      
+      return(NULL)
+      
+    } else {
+         gauge_sf[gauge_sf$nm_dscr == usgs_name2(), ]
+    }
+  
+})
 ```
 
 
@@ -465,12 +572,64 @@ renderText(
 ```
 
 ```{r equation}
+# old 'best_var()' reactive value --> this should work fine I just changed it slightly while troubleshooting
+# # choose best variable to represent each site
+# best_var <- shiny::reactive({
+#   best_setup <- linreg %>%
+#     filter(site_name == usgs_name2()) %>%
+#     slice(which.max(r2))
+#   print(paste0("best: ", best_setup$climate_var))
+#   best <- best_setup$climate_var
+# })
+
 # choose best variable to represent each site
 best_var <- shiny::reactive({
+  if(is.null(usgs_name2())) {
+    print(paste0('usgs_name2() is NULL'))
+    return(NULL)
+  }
   best_setup <- linreg %>%
     filter(site_name == usgs_name2()) %>%
     slice(which.max(r2))
-  best <- best_setup$climate_var
+  best <- best_setup$climate_var[1]
+  
+  print(paste0("best: ", best))
+  
+  return(best)
+})
+
+# slider input MINIMUM value based on "best_var()" reactive value
+slider_min <- shiny::reactive({
+    min_val <- table$min[table$var == best_var()]
+    print(paste0("min_val: ", min_val))
+    return(min_val)
+})
+
+# slider input MAXIMUM value based on "best_var()" reactive value
+slider_max <- shiny::reactive({
+    max_val <- table$max[table$var == best_var()]
+    print(paste0("max_val: ", max_val))
+    return(max_val)
+})
+
+# slider input step value based on "best_var()" reactive value,
+#   if best_var() is pdsi_may, then the step = 1, otherwise step = 0.5
+# (LOOKS LIKE THIS WON'T BE USED BUT COULD POTENTIALLY BE provided to the updateSliderInput() function "step=" argument
+slider_step <- shiny::reactive({
+
+    # set step = 1 if best_var() is "pdsi_may", otherwise set step = 0.5
+    if(best_var() == "pdsi_may") {
+      
+      step <- 1
+    
+    } else {
+      
+      step <- 0.5
+      
+    }
+    # print(paste0("step: ", step))
+    return(step)
+    
 })
 
 # prediction
@@ -486,16 +645,10 @@ y <- shiny::reactive({
 
   bdays_forecast <- slope*input$obs + intercept
 }) 
-
-
-
-
-
 ```
 
 
 ### Scatterplot
-
 ```{r}
 plotlyOutput("scatterplot")
 
@@ -516,14 +669,56 @@ shinyBS::bsPopover(
 ```
 
 ```{r context = "server"}
-
+# watch for marker clicks on map2
 shiny::observeEvent(input$map2_marker_click, {
-  
+  # if usgs_name2() is NULL, then don't do anything
   if(is.null(usgs_name2())) {
     
     return(NULL)
-    
+  
+  # otherwise if a valud usgs_name2(), then highlight the clicked gauge and update the plotly scatterplot
   } else {
+    
+    # print statements I was using for trouble shootingS
+    print(paste0("usgs_name2(): ", usgs_name2()))
+    print(paste0("best_var(): ", best_var()))
+    print(paste0("slider_min(): ", slider_min()))
+    print(paste0("slider_max(): ", slider_max()))
+    print(paste0("slider_step(): ", slider_step()))
+    
+    print("Updating leaflet map w/ selected gauge...")
+
+          # highlight the clicked on gauge in a different color
+          leaflet::leafletProxy("map2") %>%
+              leaflet::clearMarkers() %>%
+              leaflet::clearShapes() %>%
+              leaflet::clearGroup(c("selected_gauge_group2")) %>%
+              leaflet::addCircleMarkers(
+                data         = gauge_sf,
+                color        = "black",
+                opacity      = 0.7,
+                fillColor    = "dodgerblue",
+                fillOpacity  = 0.7,
+                weight       = 2,
+                stroke       = TRUE,
+                label        = gauge_sf$nm_dscr,
+                layerId      = ~nm_dscr
+                ) %>%
+              leaflet::addCircleMarkers(
+                data         = selected_gauge2(),
+                color        = "black",
+                opacity      = 1,
+                fillColor    = "darkred",
+                fillOpacity  = 1,
+                weight       = 2,
+                radius       = 12,
+                stroke       = TRUE,
+                group        = "selected_gauge_group2",
+                label        = selected_gauge2()$nm_dscr,
+                layerId      = ~nm_dscr
+                )
+          
+    # output plotly plots based on map2 marker click (usgs_name2() reactive value)
     output$scatterplot <-
       renderPlotly({
         df <- bdays_climate %>%
@@ -566,6 +761,7 @@ shiny::observeEvent(input$map2_marker_click, {
 ### Number of Boatable Days
 
 ```{r}
+# output the boatable days value box
 valueBoxOutput("bdays_box")
 
 shinyBS::bsPopover(
@@ -634,53 +830,68 @@ tags$style(HTML("
 # gore creek = 1.93
 # gunnison below tunnel = 8.43
 
+# boatable dates value box rendering and calculations
 output$bdays_box <- renderValueBox({
-
-if(is.null(usgs_name2())) {
-
+  
+  # if usgs_name2() is NULL, render valueBox with nothing (NULL)
+  if(is.null(usgs_name2())) {
+  
+      valueBox(
+  
+      paste(NULL)
+  
+      )
+    
+    # otherwise if usgs_name2() is NOT NULL (i.e. a click has happened)
+    } else {
+      
+    # filter down 'linreg' model result dataframe to the specific site_name and the best_var()
+    forecast_data <- linreg %>%
+             filter(
+               site_name == usgs_name2(),
+               climate_var == best_var())
+    
+    # filter the boatable days climate data down to site_name == "usgs_name2()" 
+    # then pivot climate variables from "pr" to the end of the dataframe
+    # then do a filter again for just the "best_var()" values in the 'climate_var' column
+    bdays_data <- 
+      bdays_climate %>%
+      filter(
+        name_description == usgs_name2()
+        ) %>%
+      pivot_longer(
+        cols      = pr:ncol(bdays_climate),
+        names_to  = "climate_var",
+        values_to = "value"
+        ) %>%
+      filter(climate_var == best_var())
+    
+    # count the number of boatable days (sum the values that are NOT NA)
+    num_b_years <- sum(!is.na(bdays_data$boatable_days))
+    
+    # extract the slope
+    slope <- forecast_data$m
+    
+    # extract the intercept
+    intercept <- forecast_data$intercept
+    
+    # boatable days forecast equation
+    bdays_forecast <- slope*input$obs + intercept
+    
+    # calculate standard error
+    se <- forecast_data$sd/
+      sqrt(num_b_years)
+  
+  # r2 <- forecast_data$r2
+    
+    # output value box with the number of boatable days
     valueBox(
-
-    paste(NULL)
-
-    )
-
-  } else {
-forecast_data <- linreg %>%
-         filter(
-           site_name == usgs_name2(),
-           climate_var == best_var())
-
-
-bdays_data <- bdays_climate %>%
-  filter(
-    name_description == usgs_name2()) %>%
-  pivot_longer(cols = pr:ncol(bdays_climate),
-               names_to = "climate_var",
-               values_to = "value") %>%
-  filter(climate_var == best_var())
-
-num_b_years <- sum(!is.na(bdays_data$boatable_days))
-
-
-slope <- forecast_data$m
-
-intercept <- forecast_data$intercept
-
-bdays_forecast <- slope*input$obs + intercept
-
-se <- forecast_data$sd/
-  sqrt(num_b_years)
-
-# r2 <- forecast_data$r2
-
-
-  valueBox(
-
-    paste(round(bdays_forecast,0)),
-    color = "darkgreen"
-
-    )}
-  })
+  
+      paste(round(bdays_forecast,0)),
+      color = "darkgreen"
+  
+      )}
+    })
 
 ```
 
