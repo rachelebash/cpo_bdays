@@ -45,6 +45,7 @@ library(shiny)
 library(flexdashboard)
 library(plotly)
 library(shinyBS)
+library(ggtext)
 
 # Data manipulation
 library(tidyr)
@@ -54,6 +55,7 @@ library(ggplot2)
 # library(DT)
 library(sf)
 library(ggpmisc)
+library(stringr)
 # library(ggpubr)
 
 # Mapping packages
@@ -103,15 +105,7 @@ output$map       <- leaflet::renderLeaflet({ basemap(shp = gauge_sf) })
 # render the leaflet map on page 2 when the app starts
 output$map2       <- leaflet::renderLeaflet({ basemap(shp = gauge_sf) })
 
-# TODO:
-# Angus TODO list:
-# - updateSliderInput - still no luck in dynamically changing the range of the slider based on a reactive variable. 
-  # Lines 345-352 is the best attempt at it, but there are other attempts below that. (DONE)
 
-# - it's not crucial, so I don't want to spend much time on it if it is complicated, 
-  # but I wanted to change the color of the marker on the map when you click on it. no worries if that doesn't work out (DONE)
-
-# - Lynker theme! (DONE)
 ```
 
 Historical Data
@@ -144,7 +138,7 @@ renderText(
 ```
 \n
 
-**Segment Name:**
+**River Segment Name:**
 ```{r segname1}
 get_seg <- reactive({
   sprintf(usgs_name())
@@ -210,71 +204,89 @@ Column {data-width=450}
 ### Streamflow Timeseries
 
 ```{r}
-shiny::plotOutput("tsplot")
+plotlyOutput("tsplot")
+
+shinyBS::bsPopover(
+  "tsplot",
+  title     = "Streamflow Timeseries",
+  content   = "This plot shows historical streamflow. The black horizontal lines are the upper and lower bounds of the runnable range that determines boatability",
+  placement = "left",
+  options   = list(container = "body")
+  )
+tags$style(HTML("
+                .tooltip > .tooltip-inner {
+                width: 400px;
+                color: black;
+                background-color: white;
+                }
+                "))
 ```
 
 ```{r context = "server"}
 shiny::observeEvent(input$map_marker_click, {
-
+  
   if(is.null(usgs_name())) {
-
+    
     return(NULL)
-
+    
   } else {
     
     print(paste0("usgs_name(): ", usgs_name()))
- 
+    
     print("Updating leaflet map w/ selected gauge...")
-
-          # highlight the clicked on gauge in a different color
-          leaflet::leafletProxy("map") %>%
-              leaflet::clearMarkers() %>%
-              leaflet::clearShapes() %>%
-              leaflet::clearGroup(c("selected_gauge_group")) %>%
-              leaflet::addCircleMarkers(
-                data         = gauge_sf,
-                color        = "black",
-                opacity      = 0.7,
-                fillColor    = "dodgerblue",
-                fillOpacity  = 0.7,
-                weight       = 2,
-                stroke       = TRUE,
-                label        = gauge_sf$nm_dscr,
-                layerId      = ~nm_dscr
-                ) %>%
-              leaflet::addCircleMarkers(
-                data         = selected_gauge(),
-                color        = "black",
-                opacity      = 1,
-                fillColor    = "darkred",
-                fillOpacity  = 1,
-                weight       = 2,
-                radius       = 12,
-                stroke       = TRUE,
-                group        = "selected_gauge_group",
-                label        = selected_gauge()$nm_dscr,
-                layerId      = ~nm_dscr
-                )
-          
+    
+    # highlight the clicked on gauge in a different color
+    leaflet::leafletProxy("map") %>%
+      leaflet::clearMarkers() %>%
+      leaflet::clearShapes() %>%
+      leaflet::clearGroup(c("selected_gauge_group")) %>%
+      leaflet::addCircleMarkers(
+        data         = gauge_sf,
+        color        = "black",
+        opacity      = 0.7,
+        fillColor    = "dodgerblue",
+        fillOpacity  = 0.7,
+        weight       = 2,
+        stroke       = TRUE,
+        label        = gauge_sf$nm_dscr,
+        layerId      = ~nm_dscr
+      ) %>%
+      leaflet::addCircleMarkers(
+        data         = selected_gauge(),
+        color        = "black",
+        opacity      = 1,
+        fillColor    = "darkred",
+        fillOpacity  = 1,
+        weight       = 2,
+        radius       = 12,
+        stroke       = TRUE,
+        group        = "selected_gauge_group",
+        label        = selected_gauge()$nm_dscr,
+        layerId      = ~nm_dscr
+      )
+    
     # output new timeseries plot ("tsplot") based on marker click on leaflet 'map'
     output$tsplot <-
-      renderPlot({
-      df <- flow_thresholds %>%
-        mutate(date = as.Date(date)) %>%
-        filter(date >= "1980-01-01") %>%
-        filter(station_nm == usgs_name())
-      
-        ggplot(df,) +
-                 geom_line(aes(x = date, y = flow), lwd = 0.9, color = "#4f77e3") +
-                 theme_bw() +
-                 geom_hline(yintercept = df$range_upper_bound[1]) +
-                 geom_hline(yintercept = df$range_lower_bound[1]) +
-                 labs(
-                   y = "Flow",
-                   x = "Date",
-                   title = usgs_name())
-    })
-}})
+      renderPlotly({
+        df <- flow_thresholds %>%
+          mutate(date = as.Date(date)) %>%
+          filter(date >= "1980-01-01") %>%
+          filter(station_nm == usgs_name())
+        
+        ggplotly(
+          ggplot(df,) +
+            geom_line(aes(x = date, y = flow), 
+                      lwd = 0.9, color = "#4f77e3") +
+            theme_bw() +
+            geom_hline(yintercept = df$range_upper_bound[1], lwd = 0.5) +
+            geom_hline(yintercept = df$range_lower_bound[1], lwd = 0.5) +
+            labs(
+              y = "Flow",
+              x = "Date",
+              title = usgs_name())
+        )
+      })
+  }})
 
 ```
 
@@ -282,7 +294,22 @@ shiny::observeEvent(input$map_marker_click, {
 
 ### Boatable Days
 ```{r}
-shiny::plotOutput("bdaysplot")
+plotlyOutput("bdaysplot")
+
+shinyBS::bsPopover(
+  "bdaysplot",
+  title     = "Boatable Days",
+  content   = "This barplot shows the total number of boatable days in a given year, based on a specific flow range",
+  placement = "left",
+  options   = list(container = "body")
+  )
+tags$style(HTML("
+                .tooltip > .tooltip-inner {
+                width: 400px;
+                color: black;
+                background-color: white;
+                }
+                "))
 
 ```
 
@@ -296,10 +323,10 @@ shiny::observeEvent(input$map_marker_click, {
     
   } else {
     
-    output$bdaysplot <- renderPlot({
+    output$bdaysplot <- renderPlotly({
       df <- bdays_climate %>%
         filter(name_description == usgs_name())
-      
+      ggplotly(
       ggplot(df,) +
         geom_bar(aes(x = year, y = boatable_days), stat = "identity") +
         theme_bw() +
@@ -308,6 +335,7 @@ shiny::observeEvent(input$map_marker_click, {
           x = "Date", 
           title = usgs_name()
         )
+      )
     })
   }})
 ```
@@ -321,7 +349,7 @@ Inputs {.sidebar}
 -------------------------------------
 **Prediction Tool**
 
-This tab shows the relationship between boatable days a popular drought indices PDSI, SPEI, and SPI. Users can drag the slider below to show a predicted number of annual boatable days given a specific drought index value.
+This tab shows the relationship between boatable days and common drought indices PDSI, SPEI, and SPI. Users can drag the slider below to show a predicted number of annual boatable days given a specific drought index value.
 
 Click on a USGS gage on the map to view.
 
@@ -340,21 +368,6 @@ selected_gauge2 <- shiny::reactive({
 })
 ```
 
-```{r}
-# - updateSliderInput - still no luck in dynamically changing the range of the slider based on a reactive variable. 
-  # Lines 345-352 is the best attempt at it, but there are other attempts below that.
-
-# - it's not crucial, so I don't want to spend much time on it if it is complicated, 
-  # but I wanted to change the color of the marker on the map when you click on it. no worries if that doesn't work out
-
-# - Lynker theme!
-
-# selectInput("climate_var", label = "\n Climate Variable",
-#             choices = unique(linreg$climate_var), selected = "pdsi_may")
-# 
-# selectInput("year", label = "Year",
-#             choices = seq(1980,2023,1), selected = 2022)
-```
 
 **Gage Name:**
 ```{r gage_name2}
@@ -374,7 +387,7 @@ renderText(
 ```
 \n
 
-**Segment Name:**
+**River Segment Name:**
 ```{r segname}
 get_seg <- reactive({
   sprintf(usgs_name2())
@@ -447,62 +460,7 @@ shiny::observeEvent(best_var(), {
                 )
   })
 
-########### Rachel's original code ############
-# observeEvent(best_var(), {
-#   minr = table$min[table$var == best_var()]
-#   maxr = table$max[table$var == best_var()]
-# 
-#   updateSliderInput(session, "obs",
-#                     min = minr,
-#                     max = maxr)
-# })
-  
-# observeEvent(best_var(), {
-#   range = c(-5,5)
-# 
-#   if(best_var() == "spei1y_may") {
-#     range = c(-2.25,2.25)
-#   }
-#   else if (best_var() == "spi1y_may") {
-#     range = c(-2.25,2.5)
-#   }
-#   else if (best_var() == "pdsi_may") {
-#     range = c(-5,5)
-#   }
-#   updateSliderInput(session,
-#                     "obs",
-#                     value = 1,
-#                     min = min(range),
-#                     max = max(range),
-#                     step = 0.25)
-# })
 
-# updateSliderInput({inputId= “obs”, value = 1,
-# min = observeEvent({best_var(), 
-#   
-#   if(best_var() == "spei1y_may") {
-#     min = -2.25
-#   }
-#   else if (best_var() == "spi1y_may") {
-#     min = -2.25
-#   }
-#   else if (best_var() == "pdsi_may") {
-#     min = -5
-#   }
-# }),
-# max = observeEvent({best_var(), 
-#   
-#   if(best_var() == "spei1y_may") {
-#     max = 2.25
-#   }
-#   else if (best_var() == "spi1y_may") {
-#     max = 2.25
-#   }
-#   else if (best_var() == "pdsi_may") {
-#     max = 5
-#   }
-# })
-# })
 ```
 
 Column {data-width = 500}
@@ -553,22 +511,22 @@ Column {data-width=450}
 
 
 ```{r r2value}
-get_r2 <- reactive({
-  sprintf(best_var())
-})
-
-renderText(
-  if(is.null(usgs_name2())) {
-    
-    return(NULL)
-    
-  } else {
-    {forecast_data <- linreg %>%
-         filter(
-           site_name == usgs_name2(),
-           climate_var == best_var())
-    r2 <- paste0("R² = ", round(forecast_data$r2, 2))}
-})
+# get_r2 <- reactive({
+#   sprintf(best_var())
+# })
+# 
+# renderText(
+#   if(is.null(usgs_name2())) {
+#     
+#     return(NULL)
+#     
+#   } else {
+#     {forecast_data <- linreg %>%
+#          filter(
+#            site_name == usgs_name2(),
+#            climate_var == best_var())
+#     r2 <- paste0("R² = ", round(forecast_data$r2, 2))}
+# })
 ```
 
 ```{r equation}
@@ -659,13 +617,13 @@ shinyBS::bsPopover(
   placement = "left",
   options   = list(container = "body")
   )
-# tags$style(HTML("
-#                 .tooltip > .tooltip-inner {
-#                 width: 400px;
-#                 color: black;
-#                 background-color: white;
-#                 }
-#                 "))
+tags$style(HTML("
+                .tooltip > .tooltip-inner {
+                width: 400px;
+                color: black;
+                background-color: white;
+                }
+                "))
 ```
 
 ```{r context = "server"}
@@ -737,8 +695,9 @@ shiny::observeEvent(input$map2_marker_click, {
             # # se = FALSE,
             # lty = 2, lwd = 0.5) +
             theme_bw() +
+            theme(plot.title = element_text(size = 10)) +
             labs(
-              title = usgs_name2(),
+              title = str_wrap(usgs_name2(), 35),
               y = "Boatable Days",
               x = case_when(
                 best_var() == "spi1y_may" ~ "May SPI 1 year",
@@ -757,7 +716,6 @@ shiny::observeEvent(input$map2_marker_click, {
 ```
 
 
-
 ### Number of Boatable Days
 
 ```{r}
@@ -765,10 +723,10 @@ shiny::observeEvent(input$map2_marker_click, {
 valueBoxOutput("bdays_box")
 
 shinyBS::bsPopover(
-  "bdays_Box",
-  title     = "Public Safety Score",
-  content   = "The hazard to human life and wellbeing. Higher scores indicate LHDs with a higher threat to public safety. A removal/retrofit project on LHDs with high scores would improve safety surrounding the more hazardous LHDs.",
-  placement = "left",
+  "bdays_box",
+  title     = "Number of Boatable Days",
+  content   = "This is the number of boatable days predicted by the linear regression equation, given the drought index value indicated by the position of the slider tool in the left panel.",
+  placement = "top",
   options   = list(container = "body")
   )
 tags$style(HTML("
@@ -782,53 +740,7 @@ tags$style(HTML("
 
 ```{r}
 
-# renderValueBox({
-#   
-# if(is.null(usgs_name2())) {
-# 
-#     valueBox(
-#     
-#     paste("Click on USGS Site on Map to view")
-#     
-#     )
-# 
-#   } else {
-# forecast_data <- linreg %>%
-#          filter(
-#            site_name == "GUNNISON RIVER BELOW GUNNISON TUNNEL, CO",
-#            climate_var == "spei1y_may")
-# 
-# 
-# bdays_data <- bdays_climate %>%
-#   filter(
-#     name_description == "GUNNISON RIVER BELOW GUNNISON TUNNEL, CO") %>%
-#   pivot_longer(cols = pr:ncol(bdays_climate),
-#                names_to = "climate_var",
-#                values_to = "value") %>%
-#   filter(climate_var == "spei1y_may")
-# 
-# num_b_years <- sum(!is.na(bdays_data$boatable_days))
-# 
-# 
-# slope <- forecast_data$m
-# 
-# intercept <- forecast_data$intercept
-# 
-# bdays_forecast <- slope*1 + intercept
-# 
-# se <- forecast_data$sd/
-#   sqrt(num_b_years)
-# 
-# 
-#   valueBox(
-#     
-#     paste(round(bdays_forecast,1), " +/- ", round(se,1))
-#     
-#     )}
-#   })
 
-# gore creek = 1.93
-# gunnison below tunnel = 8.43
 
 # boatable dates value box rendering and calculations
 output$bdays_box <- renderValueBox({
@@ -888,6 +800,64 @@ output$bdays_box <- renderValueBox({
     valueBox(
   
       paste(round(bdays_forecast,0)),
+      color = "darkgreen"
+  
+      )}
+    })
+
+```
+
+### R²
+
+```{r}
+# output the boatable days value box
+valueBoxOutput("bdays_box2")
+
+shinyBS::bsPopover(
+  "bdays_box2",
+  title     = "R²",
+  content   = "The R² value of the model for a given site and drought index. The closer the R² value is to 1.0, the higher the predictive power of the model.",
+  placement = "top",
+  options   = list(container = "body")
+  )
+tags$style(HTML("
+                .tooltip > .tooltip-inner {
+                width: 400px;
+                color: black;
+                background-color: white;
+                }
+                "))
+```
+
+```{r}
+
+# boatable dates value box rendering and calculations
+output$bdays_box2 <- renderValueBox({
+  
+  # if usgs_name2() is NULL, render valueBox with nothing (NULL)
+  if(is.null(usgs_name2())) {
+  
+      valueBox(
+  
+      paste(NULL)
+  
+      )
+    
+    # otherwise if usgs_name2() is NOT NULL (i.e. a click has happened)
+    } else {
+      
+    # filter down 'linreg' model result dataframe to the specific site_name and the best_var()
+    forecast_data <- linreg %>%
+             filter(
+               site_name == usgs_name2(),
+               climate_var == best_var())
+  
+    r2 <- forecast_data$r2
+    
+    # output value box with the number of boatable days
+    valueBox(
+  
+      paste(round(r2,2)),
       color = "darkgreen"
   
       )}
