@@ -46,6 +46,7 @@ library(flexdashboard)
 library(plotly)
 library(shinyBS)
 library(ggtext)
+library(DT)
 
 # Data manipulation
 library(tidyr)
@@ -56,6 +57,7 @@ library(ggplot2)
 library(sf)
 library(ggpmisc)
 library(stringr)
+# library(grob)
 # library(ggpubr)
 
 # Mapping packages
@@ -98,6 +100,10 @@ table <- data.frame(
   min = c(-2.25, -2.25, -5),
   max = c(2.25, 2.25, 5)
   )
+
+```
+
+```{r, include = FALSE}
 
 # render leaflet map on page 1 when the app starts
 output$map       <- leaflet::renderLeaflet({ basemap(shp = gauge_sf) })
@@ -273,6 +279,15 @@ shiny::observeEvent(input$map_marker_click, {
           filter(date >= "1980-01-01") %>%
           filter(station_nm == usgs_name())
         
+        # grob1 <- grobTree(textGrob("Upper Bound", x=0.1,  y=0.95, 
+        #                           hjust=0,
+        #                           gp=gpar(col="darkred")))
+        
+        lastDate<- max(df$date)-1100
+        Upper <- df$range_upper_bound[df$date==lastDate]
+        Lower <- df$range_lower_bound[df$date==lastDate]
+
+        
         ggplotly(
           ggplot(df,) +
             geom_line(aes(x = date, y = flow), 
@@ -280,6 +295,16 @@ shiny::observeEvent(input$map_marker_click, {
             theme_bw() +
             geom_hline(yintercept = df$range_upper_bound[1], lwd = 0.5) +
             geom_hline(yintercept = df$range_lower_bound[1], lwd = 0.5) +
+            # annotate(geom = 'text', label = 'sometext', 
+            #          x = -Inf, y = Inf, hjust = 0, vjust = 1) +
+            # geom_text(data=data.frame(), 
+            #           aes(label = 'sometext', x = -Inf, y = Inf),
+            #           hjust = 0, vjust = 1) +
+            annotate(geom='text', x=c(lastDate, lastDate),
+                     y= c(Upper, Lower),
+                     label= c("Upper Bound", "Lower Bound")) +
+            # annotate("text", x = as.Date(-Inf, origin = '1970-01-01'), 
+            #          y = Inf, hjust = 0, vjust = 0, label = "Hello world!") +
             labs(
               y = "Flow",
               x = "Date",
@@ -349,7 +374,7 @@ Inputs {.sidebar}
 -------------------------------------
 **Prediction Tool**
 
-This tab shows the relationship between boatable days and common drought indices PDSI, SPEI, and SPI. Users can drag the slider below to show a predicted number of annual boatable days given a specific drought index value.
+This tab shows the relationship between boatable days and common drought indices PDSI, SPEI, and SPI. The drought index that is shown for each gage is the one with the highest correlation with boatable days at that gage. Users can drag the slider below to show a predicted number of annual boatable days given a specific drought index value.
 
 Click on a USGS gage on the map to view.
 
@@ -613,7 +638,7 @@ plotlyOutput("scatterplot")
 shinyBS::bsPopover(
   "scatterplot",
   title     = "Linear Regression",
-  content   = "This scatter plot shows the historical relationship between boatable days and the drought index with the highest predictive power. The green dot corresponds to the drought index value from the slider in the left-hand panel",
+  content   = "This scatter plot shows the historical relationship between boatable days and the drought index with the highest predictive power. The red dot corresponds to the drought index value from the slider in the left-hand panel",
   placement = "left",
   options   = list(container = "body")
   )
@@ -707,7 +732,7 @@ shiny::observeEvent(input$map2_marker_click, {
             ) +
             geom_point(aes(x = input$obs, y = y(), label = "Prediction"),
                        size = 3,
-                       color = "darkgreen"
+                       color = "darkred"
             ),
           tooltip = c("label")
         )
@@ -725,7 +750,7 @@ valueBoxOutput("bdays_box")
 shinyBS::bsPopover(
   "bdays_box",
   title     = "Number of Boatable Days",
-  content   = "This is the number of boatable days predicted by the linear regression equation, given the drought index value indicated by the position of the slider tool in the left panel.",
+  content   = "This is the number of boatable days predicted by the linear regression equation (red dot in plot above), given the drought index value indicated by the position of the slider tool in the left panel.",
   placement = "top",
   options   = list(container = "body")
   )
@@ -800,7 +825,7 @@ output$bdays_box <- renderValueBox({
     valueBox(
   
       paste(round(bdays_forecast,0)),
-      color = "darkgreen"
+      color = "#1c3a5d"
   
       )}
     })
@@ -858,10 +883,30 @@ output$bdays_box2 <- renderValueBox({
     valueBox(
   
       paste(round(r2,2)),
-      color = "darkgreen"
+      color = "#1c3a5d"
   
       )}
     })
+
+```
+
+Table
+=============================
+```{r}
+# DT::DTOutput("table")
+```
+
+
+```{r}
+linreg <- linreg[with(linreg, order(river, -r2)),]
+
+rownames(linreg) <- seq(1,length(linreg$river),1)
+
+
+DT::datatable(linreg, options = list(
+  bPaginate = FALSE
+)) %>%
+  DT::formatRound(columns = c("r2", "variance", "sd", "intercept", "m", "se"),  digits = 2)
 
 ```
 

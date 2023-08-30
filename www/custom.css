@@ -1,6 +1,6 @@
 h1, h2, h3, h4, h5, h6, .h1, .h2, .h3, .h4, .h5, .h6 {
     font-family: "Open Sans","Helvetica Neue",Helvetica,Arial,sans-serif;
-    font-weight: 300;
+    font-weight: 700;
     line-height: 1.5;
     color: inherit;
 }
@@ -39,7 +39,7 @@ h1, h2, h3, h4, h5, h6, .h1, .h2, .h3, .h4, .h5, .h6 {
 .chart-title {
     border-bottom: 2px solid white;
     color: black;
-    font-size: 12px;
+    font-size: 14px;
     font-weight: 550;
     padding: 7px 10px 4px;
 }
