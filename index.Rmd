@@ -57,6 +57,7 @@ library(ggplot2)
 library(sf)
 library(ggpmisc)
 library(stringr)
+library(ggrepel)
 # library(grob)
 # library(ggpubr)
 
@@ -289,18 +290,23 @@ shiny::observeEvent(input$map_marker_click, {
 
         
         ggplotly(
-          ggplot(df,) +
+          ggplot(df, ) +
             geom_line(aes(x = date, y = flow), 
-                      lwd = 0.9, color = "#4f77e3") +
+                      lwd = 0.8, color = "#4f77e3") +
             theme_bw() +
-            geom_hline(yintercept = df$range_upper_bound[1], lwd = 0.5) +
-            geom_hline(yintercept = df$range_lower_bound[1], lwd = 0.5) +
+            geom_hline(yintercept = df$range_upper_bound[1], lwd = 0.5, color = "darkred") +
+            geom_hline(yintercept = df$range_lower_bound[1], lwd = 0.5, color = "darkred") +
+            # geom_text_repel(data=data.frame(),
+            #           aes(x=c(lastDate, lastDate),
+            #               y= c(Upper, Lower),
+            #               label= c("Upper Bound", "Lower Bound"))) +
             # annotate(geom = 'text', label = 'sometext', 
             #          x = -Inf, y = Inf, hjust = 0, vjust = 1) +
             # geom_text(data=data.frame(), 
             #           aes(label = 'sometext', x = -Inf, y = Inf),
             #           hjust = 0, vjust = 1) +
-            annotate(geom='text', x=c(lastDate, lastDate),
+            annotate(geom='text',
+                     x=c(lastDate, lastDate),
                      y= c(Upper, Lower),
                      label= c("Upper Bound", "Lower Bound")) +
             # annotate("text", x = as.Date(-Inf, origin = '1970-01-01'), 
